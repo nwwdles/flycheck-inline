@@ -56,14 +56,14 @@ Return the displayed phantom."
                 (save-excursion
                   (goto-char p)
                   (cons (- p (point-at-bol)) (point-at-eol))))
-               (ov (make-overlay pos-eol (1+ pos-eol)))
+               (ov (make-overlay pos-eol pos-eol nil t t))
                ;; If the error is on the last line, and that line doesn't end
                ;; with a newline, the overlay will be displayed at the end of
                ;; the line instead of below it.  Adding a newline before the
                ;; message fixes it.
-               (str (concat (when (eq pos-eol (point-max)) "\n")
-                            (flycheck-inline-indent-message offset msg)
-                            "\n")))
+               (str
+                     (propertize (concat "  " msg)
+                                'cursor t)))
     (overlay-put ov 'phantom t)
     (overlay-put ov 'after-string str)
     (overlay-put ov 'error err)
@@ -71,19 +71,13 @@ Return the displayed phantom."
 
 (defun flycheck-inline--contains-point (phantom &optional pt)
   "Whether the given error overlay contains the position PT otherwise `(point)'"
-  (let* ((pos (or pt (point)))
-         (err (overlay-get phantom 'error))
-         (region (flycheck-error-region-for-mode err 'symbols)))
+  (let* ((err (overlay-get phantom 'error)))
     (and phantom
          ;; Must be one of our phantoms (probably unneeded).
          (overlay-get phantom 'phantom)
          ;; The underlying error must currently exist.
          err
-         (memq err flycheck-current-errors)
-         ;; Most importantly, point must be within the error bounds.
-         region
-         (>= pos (car region))
-         (<= pos (cdr region)))))
+         (memq err flycheck-current-errors))))
 
 (defun flycheck-inline-phantom-delete (phantom)
   "Delete PHANTOM if its region doesn't contain point.
@@ -224,14 +218,14 @@ POS defaults to point."
   "Hide all inline messages currently being shown."
   (funcall flycheck-inline-clear-function))
 
-(defun flycheck-inline-display-errors (errors)
+(defun flycheck-inline-display-errors ()
   "Display ERRORS, and all related errors, inline.
 
 ERRORS is a list of `flycheck-error' objects."
   (flycheck-inline-hide-errors)
   (mapc #'flycheck-inline-display-error
         (seq-uniq
-         (seq-mapcat #'flycheck-related-errors errors))))
+         (seq-mapcat #'flycheck-related-errors flycheck-current-errors))))
 
 
 ;;; Global and local minor modes
@@ -256,13 +250,13 @@ directly below the error reported location."
   (cond
    ;; Use our display function.
    (flycheck-inline-mode
-    (setq-local flycheck-display-errors-function #'flycheck-inline-display-errors)
+    (add-hook 'flycheck-after-syntax-check-hook #'flycheck-inline-display-errors nil 'local)
     (add-hook 'post-command-hook #'flycheck-inline-hide-errors nil 'local))
    ;; Reset the display function and remove ourselves from all hooks but only
    ;; if the mode is still active.
    ((not flycheck-inline-mode)
-    (kill-local-variable 'flycheck-display-errors-function)
     (flycheck-inline-hide-errors)
+    (remove-hook 'flycheck-after-syntax-check-hook #'flycheck-inline-display-errors 'local)
     (remove-hook 'post-command-hook #'flycheck-inline-hide-errors 'local))))
 
 (defun turn-on-flycheck-inline ()
